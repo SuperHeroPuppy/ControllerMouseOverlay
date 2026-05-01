@@ -935,6 +935,7 @@ def _remap_loop(app, joystick, mapping: Dict[str, Any]) -> None:
 
     gamepad = vgp.VX360Gamepad()
     state.ui_queue.put(("log", "Virtual Xbox controller created."))
+    start_was_pressed = False
 
     try:
         while not state.stop_event.is_set() and getattr(app, "running", True):
@@ -943,6 +944,14 @@ def _remap_loop(app, joystick, mapping: Dict[str, Any]) -> None:
             digital_state: Dict[str, bool] = {}
             for target, source in mapping.get("digital", {}).items():
                 digital_state[target] = _read_digital_source(joystick, source)
+
+            start_is_pressed = bool(digital_state.get("START", False))
+            if start_is_pressed and not start_was_pressed:
+                try:
+                    app.root.after(0, app.toggle_overlay)
+                except Exception:
+                    pass
+            start_was_pressed = start_is_pressed
 
             analog = mapping.get("analog", {})
             lx = _read_analog_source(joystick, analog["LX"], "LX")

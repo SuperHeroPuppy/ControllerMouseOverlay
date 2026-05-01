@@ -73,6 +73,7 @@ class ControllerMouseOverlayApp:
         self.startup_check_time = None
         self.controller_name = None  # Track detected controller name
         self.last_controller_check = 0  # Track last controller name check time
+        self.last_overlay_toggle_at = 0.0
         self.runtime_flags = {
             "movement_enabled": False,
             "control_windows": False,
@@ -270,7 +271,43 @@ class ControllerMouseOverlayApp:
             highlightthickness=1,
             highlightbackground=COLORS["border"],
         )
-        self.status_badge.pack(side="right")
+
+        header_controls = tk.Frame(self.header, bg=COLORS["panel_alt"], padx=4, pady=4, highlightthickness=1, highlightbackground=COLORS["border"])
+        header_controls.place(relx=1.0, rely=0.0, anchor="ne", x=25, y=-25)
+
+        tk.Button(
+            header_controls,
+            text="X",
+            command=self.stop,
+            relief="flat",
+            bd=0,
+            padx=10,
+            pady=5,
+            bg=COLORS["card"],
+            fg=COLORS["danger"],
+            activebackground=COLORS["danger"],
+            activeforeground=COLORS["text"],
+            font=("Segoe UI Semibold", 9),
+            cursor="hand2",
+        ).pack(side="right")
+
+        tk.Button(
+            header_controls,
+            text="-",
+            command=self.hide_overlay,
+            relief="flat",
+            bd=0,
+            padx=10,
+            pady=5,
+            bg=COLORS["card"],
+            fg=COLORS["muted"],
+            activebackground=COLORS["card_alt"],
+            activeforeground=COLORS["text"],
+            font=("Segoe UI Semibold", 9),
+            cursor="hand2",
+        ).pack(side="right", padx=(0, 4))
+
+        self.status_badge.pack(side="right", padx=(0, 8))
 
         nav = tk.Frame(self.outer, bg=COLORS["bg"], pady=16)
         nav.pack(fill="x")
@@ -931,6 +968,12 @@ class ControllerMouseOverlayApp:
         self.root.after(16, self.animate_overlay)
 
     def toggle_overlay(self):
+        now = time.time()
+        # Ignore duplicate toggle requests that arrive in the same input burst.
+        if now - self.last_overlay_toggle_at < 0.22:
+            return
+        self.last_overlay_toggle_at = now
+
         self.overlay_active = not self.overlay_active
         if self.overlay_active:
             self.overlay.deiconify()
@@ -941,6 +984,14 @@ class ControllerMouseOverlayApp:
         else:
             self.overlay_target_y = -self.overlay_height - 24
             self.set_status("Overlay closed")
+        self.refresh_status_badge()
+
+    def hide_overlay(self):
+        if not self.overlay_active:
+            return
+        self.overlay_active = False
+        self.overlay_target_y = -self.overlay_height - 24
+        self.set_status("Overlay hidden")
         self.refresh_status_badge()
 
     def hide_overlay_on_controller_connect(self):
