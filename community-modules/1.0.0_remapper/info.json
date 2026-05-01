@@ -1,0 +1,9 @@
+{
+  "version": "1.0.0",
+  "display_name": "Controller Remapper",
+  "registry_name": "remapper",
+  "description": "Controller input and analog remapper.",
+  "creators": [
+    "LianJordaan"
+  ]
+}
