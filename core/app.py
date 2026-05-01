@@ -1258,6 +1258,13 @@ class ControllerMouseOverlayApp:
         height = win32api.GetSystemMetrics(1)
         return width, height, width // 2, height // 2
 
+    def get_virtual_screen_bounds(self):
+        left = win32api.GetSystemMetrics(win32con.SM_XVIRTUALSCREEN)
+        top = win32api.GetSystemMetrics(win32con.SM_YVIRTUALSCREEN)
+        width = win32api.GetSystemMetrics(win32con.SM_CXVIRTUALSCREEN)
+        height = win32api.GetSystemMetrics(win32con.SM_CYVIRTUALSCREEN)
+        return left, top, left + width - 1, top + height - 1
+
     def set_cursor(self, x, y):
         win32api.SetCursorPos((int(x), int(y)))
 
@@ -1353,9 +1360,9 @@ class ControllerMouseOverlayApp:
             if abs(overlay_x) < 0.01 and abs(overlay_y) < 0.01:
                 return
             cursor_x, cursor_y = win32api.GetCursorPos()
-            width, height, _, _ = self.get_screen()
-            next_x = clamp(cursor_x + (overlay_x * self.settings["overlay_cursor_speed"]), 0, width - 1)
-            next_y = clamp(cursor_y + (overlay_y * self.settings["overlay_cursor_speed"]), 0, height - 1)
+            min_x, min_y, max_x, max_y = self.get_virtual_screen_bounds()
+            next_x = clamp(cursor_x + (overlay_x * self.settings["overlay_cursor_speed"]), min_x, max_x)
+            next_y = clamp(cursor_y + (overlay_y * self.settings["overlay_cursor_speed"]), min_y, max_y)
             self.set_cursor(next_x, next_y)
             return
 
@@ -1363,9 +1370,9 @@ class ControllerMouseOverlayApp:
             if abs(move_x) < 0.01 and abs(move_y) < 0.01:
                 return
             cursor_x, cursor_y = win32api.GetCursorPos()
-            width, height, _, _ = self.get_screen()
-            next_x = clamp(cursor_x + (move_x * self.settings["overlay_cursor_speed"]), 0, width - 1)
-            next_y = clamp(cursor_y + (move_y * self.settings["overlay_cursor_speed"]), 0, height - 1)
+            min_x, min_y, max_x, max_y = self.get_virtual_screen_bounds()
+            next_x = clamp(cursor_x + (move_x * self.settings["overlay_cursor_speed"]), min_x, max_x)
+            next_y = clamp(cursor_y + (move_y * self.settings["overlay_cursor_speed"]), min_y, max_y)
             self.set_cursor(next_x, next_y)
             return
 
@@ -1566,6 +1573,13 @@ class ControllerMouseOverlayApp:
         if event.code in SUPPORTED_INPUTS:
             self.register_press(event.code, int(event.state))
 
+    def is_remapper_active(self):
+        remapper_state = getattr(self, "_remapper_module_state", None)
+        if remapper_state is None:
+            return False
+        remap_thread = getattr(remapper_state, "remap_thread", None)
+        return bool(remap_thread and remap_thread.is_alive())
+
     def controller_loop(self):
         while self.running:
             try:
@@ -1583,6 +1597,8 @@ class ControllerMouseOverlayApp:
                     for event in events:
                         if not self.running:
                             break
+                        if self.is_remapper_active():
+                            continue
                         self.process_controller_event(event)
                 else:
                     # No gamepad events but keep checking

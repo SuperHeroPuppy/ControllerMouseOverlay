@@ -604,6 +604,33 @@ def _apply_digital(gamepad, digital_state: Dict[str, bool]) -> None:
             gamepad.release_button(button=button)
 
 
+def _push_remapped_state_to_app(app, lx: float, ly: float, rx: float, ry: float, lt: float, rt: float, digital_state: Dict[str, bool]) -> None:
+    controller_state = getattr(app, "controller_state", None)
+    if controller_state is None:
+        return
+
+    controller_state.lx = float(lx)
+    controller_state.ly = float(ly)
+    controller_state.rx = float(rx)
+    controller_state.ry = float(ry)
+    controller_state.lt = float(lt)
+    controller_state.rt = float(rt)
+
+    dpad_x = 0
+    dpad_y = 0
+    if digital_state.get("DPAD_LEFT", False):
+        dpad_x -= 1
+    if digital_state.get("DPAD_RIGHT", False):
+        dpad_x += 1
+    if digital_state.get("DPAD_UP", False):
+        dpad_y -= 1
+    if digital_state.get("DPAD_DOWN", False):
+        dpad_y += 1
+
+    controller_state.dpad_x = dpad_x
+    controller_state.dpad_y = dpad_y
+
+
 def _safe_tick_ui(app) -> None:
     try:
         app.root.update_idletasks()
@@ -968,6 +995,8 @@ def _remap_loop(app, joystick, mapping: Dict[str, Any]) -> None:
             gamepad.right_trigger_float(value_float=rt)
             _apply_digital(gamepad, digital_state)
             gamepad.update()
+
+            _push_remapped_state_to_app(app, lx, ly, rx, ry, lt, rt, digital_state)
 
             time.sleep(POLL_DELAY)
 
