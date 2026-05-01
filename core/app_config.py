@@ -7,6 +7,7 @@ CORE_INFO_PATH = os.path.join(CORE_DIR, "info.json")
 DEFAULT_SETTINGS_PATH = os.path.join(CORE_DIR, "settings.json")
 CORE_MODULES_DIR = os.path.join(CORE_DIR, "modules")
 OPTIONAL_MODULES_DIR = os.path.join(PROJECT_DIR, "modules")
+COMMUNITY_MODULES_DIR = os.path.join(PROJECT_DIR, "community-modules")
 
 APP_DIR = os.path.join(os.environ.get("APPDATA", os.getcwd()), "ControllerMouseOverlay")
 SETTINGS_PATH = os.path.join(APP_DIR, "settings.json")

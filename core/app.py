@@ -11,7 +11,7 @@ from inputs import get_gamepad
 import win32api
 import win32con
 
-from core.app_config import APP_DIR, CONTROL_SHEET_EXPORT_DIR, CORE_DIR, CORE_MODULES_DIR, EXPORT_DIR, OPTIONAL_MODULES_DIR, SETTINGS_PATH, STYLE_EXPORT_DIR
+from core.app_config import APP_DIR, COMMUNITY_MODULES_DIR, CONTROL_SHEET_EXPORT_DIR, CORE_DIR, CORE_MODULES_DIR, EXPORT_DIR, OPTIONAL_MODULES_DIR, SETTINGS_PATH, STYLE_EXPORT_DIR
 from core.controller_constants import (
     ACTION_DEFINITIONS,
     ACTION_KEYS,
@@ -103,7 +103,9 @@ class ControllerMouseOverlayApp:
         self.mapping_grid_buttons = {}
         self.style_vars = {}
         self.loaded_optional_modules = set()
+        self.loaded_community_modules = set()
         self.optional_modules = {}
+        self.community_modules = {}
         self.core_modules = {}
         self.module_errors = {}
         self.scrollbar_style_name = "Overlay.Vertical.TScrollbar"
@@ -316,6 +318,8 @@ class ControllerMouseOverlayApp:
             self.page_frames[key] = self.build_core_module_page(key, self.content)
         for module_name in sorted(self.loaded_optional_modules):
             self.load_optional_module(module_name, activate=False)
+        for module_name in sorted(self.loaded_community_modules):
+            self.load_community_module(module_name, activate=False)
 
     def rebuild_overlay(self):
         if hasattr(self, "outer") and self.outer.winfo_exists():
@@ -327,6 +331,7 @@ class ControllerMouseOverlayApp:
         self.mapping_grid_buttons = {}
         self.style_vars = {}
         self.optional_modules = {}
+        self.community_modules = {}
         self.load_core_modules()
         self.build_overlay()
         self.sync_ui_with_settings()
@@ -548,6 +553,78 @@ class ControllerMouseOverlayApp:
         self.set_status(f"Reloaded {len(loaded_modules)} additional module(s)")
         self.refresh_modules_page()
 
+    def load_community_module_page(self, module_name, parent):
+        try:
+            module, _info = load_registered_module(COMMUNITY_MODULES_DIR, module_name)
+        except ModuleLoadError as exc:
+            self.module_errors[module_name] = str(exc)
+            return self.build_optional_module_error_page(parent, module_name, category_label="community")
+        self.community_modules[module_name] = module
+        return module.build_page(self, parent)
+
+    def load_community_module(self, module_name, activate=True):
+        if module_name not in self.page_frames:
+            self.page_frames[module_name] = self.load_community_module_page(module_name, self.content)
+            self.loaded_community_modules.add(module_name)
+            self.add_optional_module_button(module_name)
+        if activate:
+            self.set_active_page(module_name)
+            self.set_status(f"Loaded {module_name.replace('_', ' ').title()} community module")
+        self.refresh_modules_page()
+
+    def unload_community_module(self, module_name):
+        frame = self.page_frames.pop(module_name, None)
+        if frame is not None and frame.winfo_exists():
+            frame.destroy()
+        button = self.page_buttons.pop(module_name, None)
+        if button is not None and button.winfo_exists():
+            button.destroy()
+        self.community_modules.pop(module_name, None)
+        self.loaded_community_modules.discard(module_name)
+        if self.active_page == module_name:
+            self.active_page = "modules" if "modules" in self.page_frames else "overview"
+        self.update_page_visibility()
+        self.set_status(f"Unloaded {module_name.replace('_', ' ').title()} community module")
+        self.refresh_modules_page()
+
+    def reload_community_module(self, module_name, activate=False):
+        frame = self.page_frames.pop(module_name, None)
+        if frame is not None and frame.winfo_exists():
+            frame.destroy()
+        self.community_modules.pop(module_name, None)
+        self.loaded_community_modules.discard(module_name)
+        self.page_frames[module_name] = self.load_community_module_page(module_name, self.content)
+        self.loaded_community_modules.add(module_name)
+        self.add_optional_module_button(module_name)
+        if activate or self.active_page == module_name:
+            self.set_active_page(module_name)
+        else:
+            self.update_page_visibility()
+        self.set_status(f"Reloaded {module_name.replace('_', ' ').title()} community module")
+        self.refresh_modules_page()
+
+    def reload_all_community_modules(self):
+        loaded_modules = sorted(self.loaded_community_modules)
+        if not loaded_modules:
+            self.set_status("No community modules are loaded")
+            self.refresh_modules_page()
+            return
+        active_page = self.active_page
+        for module_name in loaded_modules:
+            frame = self.page_frames.pop(module_name, None)
+            if frame is not None and frame.winfo_exists():
+                frame.destroy()
+            self.community_modules.pop(module_name, None)
+            self.loaded_community_modules.discard(module_name)
+            self.page_frames[module_name] = self.load_community_module_page(module_name, self.content)
+            self.loaded_community_modules.add(module_name)
+            self.add_optional_module_button(module_name)
+        if active_page in self.page_frames:
+            self.active_page = active_page
+        self.update_page_visibility()
+        self.set_status(f"Reloaded {len(loaded_modules)} community module(s)")
+        self.refresh_modules_page()
+
     def load_core_module(self, registry_name, activate=True):
         if registry_name == "core":
             self.set_status("Core is required and already loaded")
@@ -609,6 +686,7 @@ class ControllerMouseOverlayApp:
         return {
             "core": [{"folder": "core", "path": CORE_DIR, "info": core_info}] + discover_registered_modules(CORE_MODULES_DIR),
             "optional": discover_registered_modules(OPTIONAL_MODULES_DIR),
+            "community": discover_registered_modules(COMMUNITY_MODULES_DIR),
         }
 
     def add_optional_module_button(self, module_name):
@@ -635,7 +713,12 @@ class ControllerMouseOverlayApp:
         if module and hasattr(module, "refresh"):
             return module.refresh(self)
 
-    def build_optional_module_error_page(self, parent, module_name):
+    def refresh_community_module(self, module_name):
+        module = self.community_modules.get(module_name)
+        if module and hasattr(module, "refresh"):
+            return module.refresh(self)
+
+    def build_optional_module_error_page(self, parent, module_name, category_label="additional"):
         frame = tk.Frame(parent, bg=COLORS["bg"])
         card = tk.Frame(frame, bg=COLORS["panel"], padx=22, pady=20, highlightthickness=1, highlightbackground=COLORS["border"])
         card.pack(fill="both", expand=True)
@@ -643,7 +726,10 @@ class ControllerMouseOverlayApp:
         tk.Label(card, text=f"{label} Module Missing", bg=COLORS["panel"], fg=COLORS["danger"], font=("Segoe UI Semibold", 16)).pack(anchor="w")
         tk.Label(
             card,
-            text="This optional module could not be found. It must be inside a named module folder with module.py and info.json.",
+            text=(
+                f"This {category_label} module could not be found. "
+                "It must be inside a named module folder with module.py and info.json."
+            ),
             bg=COLORS["panel"],
             fg=COLORS["text"],
             font=("Segoe UI", 10),

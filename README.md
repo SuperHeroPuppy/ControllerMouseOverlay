@@ -55,6 +55,14 @@ A Python application that allows you to control your mouse cursor using a game c
 - Operating System: Windows 11 (Windows 10 Untested)
 - Required pip packages (see Installation section)
 
+## Modules
+
+- `core/modules`: Built-in core modules required by the app UI.
+- `modules`: Additional first-party/optional modules.
+- `community-modules`: Community-supplied modules.
+- Community module warning: some modules may require additional third-party libraries.
+- Community module warning: community modules may contain malicious code; review carefully before running them.
+
 ## Contributing
 
 Contributions are welcome! Please fork the repository and submit a pull request.
