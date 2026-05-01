@@ -1,0 +1,9 @@
+{
+  "version": "1.0.0",
+  "display_name": "API",
+  "registry_name": "api",
+  "description": "Optional guide for building Controller Mouse Overlay modules.",
+  "creators": [
+    "SuperHeroPuppy"
+  ]
+}

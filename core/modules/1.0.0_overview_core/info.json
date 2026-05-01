@@ -1,0 +1,9 @@
+{
+  "version": "1.0.0",
+  "display_name": "Overview",
+  "registry_name": "overview",
+  "description": "Core live-state overview and current mapping summary.",
+  "creators": [
+    "SuperHeroPuppy"
+  ]
+}

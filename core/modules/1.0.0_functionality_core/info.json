@@ -1,0 +1,9 @@
+{
+  "version": "1.0.0",
+  "display_name": "Functionality",
+  "registry_name": "functionality",
+  "description": "Core controls for movement lock, controller modes, tuning, and saved positions.",
+  "creators": [
+    "SuperHeroPuppy"
+  ]
+}

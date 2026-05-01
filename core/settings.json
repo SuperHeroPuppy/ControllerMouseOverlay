@@ -1,0 +1,75 @@
+{
+  "deadzone": 0.25,
+  "strength": 50,
+  "overlay_cursor_speed": 28,
+  "edge_padding": 80,
+  "dpad_flip_y": false,
+  "input_mode": "right_stick",
+  "position_mode": "center",
+  "custom_slot": "custom_1",
+  "auto_hold_action": "Right Mouse",
+  "custom_locations": {
+    "custom_1": {
+      "x": 960,
+      "y": 540
+    },
+    "custom_2": {
+      "x": 960,
+      "y": 540
+    },
+    "custom_3": {
+      "x": 960,
+      "y": 540
+    }
+  },
+  "input_actions": {
+    "BTN_SELECT": "none",
+    "BTN_START": "none",
+    "BTN_SOUTH": "none",
+    "BTN_EAST": "none",
+    "BTN_WEST": "none",
+    "BTN_NORTH": "none",
+    "BTN_TL": "none",
+    "BTN_TR": "none",
+    "BTN_THUMBL": "none",
+    "BTN_THUMBR": "none",
+    "DPAD_UP": "none",
+    "DPAD_DOWN": "none",
+    "DPAD_LEFT": "none",
+    "DPAD_RIGHT": "none",
+    "LT": "none",
+    "RT": "none"
+  },
+  "input_remaps": {
+    "BTN_SELECT": "Right Click",
+    "BTN_START": "Right Click",
+    "BTN_SOUTH": "Right Click",
+    "BTN_EAST": "Right Click",
+    "BTN_WEST": "Right Click",
+    "BTN_NORTH": "Right Click",
+    "BTN_TL": "Right Click",
+    "BTN_TR": "Right Click",
+    "BTN_THUMBL": "Right Click",
+    "BTN_THUMBR": "Right Click",
+    "DPAD_UP": "Right Click",
+    "DPAD_DOWN": "Right Click",
+    "DPAD_LEFT": "Right Click",
+    "DPAD_RIGHT": "Right Click",
+    "LT": "Right Click",
+    "RT": "Right Click"
+  },
+  "style": {
+    "bg": "#0b1020",
+    "panel": "#11182b",
+    "panel_alt": "#0d1425",
+    "card": "#161f34",
+    "card_alt": "#1c2740",
+    "border": "#243252",
+    "text": "#edf2ff",
+    "muted": "#9babcc",
+    "accent": "#5eead4",
+    "accent_alt": "#60a5fa",
+    "danger": "#fb7185",
+    "success": "#34d399"
+  }
+}

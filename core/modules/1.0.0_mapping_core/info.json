@@ -1,0 +1,9 @@
+{
+  "version": "1.0.0",
+  "display_name": "Mapping",
+  "registry_name": "mapping",
+  "description": "Core controller input mapping and Windows remap editor.",
+  "creators": [
+    "SuperHeroPuppy"
+  ]
+}

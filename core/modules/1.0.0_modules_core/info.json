@@ -1,0 +1,9 @@
+{
+  "version": "1.0.0",
+  "display_name": "Modules",
+  "registry_name": "modules",
+  "description": "Core module manager for viewing, loading, unloading, and reviewing module metadata.",
+  "creators": [
+    "SuperHeroPuppy"
+  ]
+}

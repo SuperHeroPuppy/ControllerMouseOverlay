@@ -1,0 +1,9 @@
+{
+  "version": "1.0.0",
+  "display_name": "Utilities",
+  "registry_name": "utilities",
+  "description": "Core utilities for settings, style import/export, control sheets, export locations, cleanup, and app exit.",
+  "creators": [
+    "SuperHeroPuppy"
+  ]
+}
