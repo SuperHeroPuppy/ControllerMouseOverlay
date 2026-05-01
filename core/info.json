@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "display_name": "Core",
   "registry_name": "core",
   "description": "Required program core containing the app runtime, shared configuration, constants, registry loader, default settings, and bundled core modules.",

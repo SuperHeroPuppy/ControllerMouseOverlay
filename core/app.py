@@ -57,7 +57,7 @@ class ControllerMouseOverlayApp:
         self.running = True
         self.overlay_active = False
         self.holding_active = False
-        self.status_text = "Waiting for controller"
+        self.status_text = "Initializing..."
         self.active_page = "overview"
         self.selected_input = "BTN_SOUTH"
         self.overlay_width = 1180
@@ -65,6 +65,14 @@ class ControllerMouseOverlayApp:
         self.overlay_current_y = -self.overlay_height - 30
         self.overlay_target_y = self.overlay_current_y
         self.first_launch = not os.path.exists(SETTINGS_PATH)
+        self.controller_connected = False
+        self.controller_warning_shown = False
+        self.controller_disconnect_time = None
+        self.controller_warning_timeout = 2.0  # Show warning after 2 seconds of no controller
+        self.no_controller_overlay_shown = False  # Track if we've shown overlay for no controller
+        self.startup_check_time = None
+        self.controller_name = None  # Track detected controller name
+        self.last_controller_check = 0  # Track last controller name check time
         self.runtime_flags = {
             "movement_enabled": False,
             "control_windows": False,
@@ -106,18 +114,16 @@ class ControllerMouseOverlayApp:
         self.sync_ui_with_settings()
         self.update_page_visibility()
         self.position_overlay(initial=True)
-        if self.first_launch:
-            self.overlay_active = True
-            self.overlay_target_y = 18
-            self.overlay.deiconify()
-            self.overlay.lift()
-            self.refresh_status_badge()
+        self.set_status("Waiting for controller...")
+        self.startup_check_time = time.time()
 
         self.controller_thread = threading.Thread(target=self.controller_loop, daemon=True)
         self.controller_thread.start()
 
         self.root.after(16, self.tick)
         self.root.after(150, self.animate_overlay)
+        self.root.after(2500, self.check_and_show_overlay_if_no_controller)  # Check after 2.5 seconds
+        self.root.after(5000, self.periodic_controller_check)  # Check controller name every 5 seconds
         self.root.bind("<Escape>", lambda _event: self.stop())
 
     def load_settings(self):
@@ -851,6 +857,13 @@ class ControllerMouseOverlayApp:
             self.set_status("Overlay closed")
         self.refresh_status_badge()
 
+    def hide_overlay_on_controller_connect(self):
+        """Hide the overlay when controller connects after being shown due to no controller"""
+        if self.overlay_active and self.no_controller_overlay_shown:
+            self.overlay_active = False
+            self.overlay_target_y = -self.overlay_height - 24
+            self.refresh_status_badge()
+
     def on_action_list_select(self, _event):
         if not self.action_listbox.curselection():
             return
@@ -1420,14 +1433,91 @@ class ControllerMouseOverlayApp:
         while self.running:
             try:
                 events = get_gamepad()
-                for event in events:
-                    if not self.running:
-                        break
-                    self.process_controller_event(event)
-                self.root.after(0, lambda: self.set_status("Controller connected"))
+                if events or self.controller_connected:
+                    # Controller is connected or events exist
+                    if not self.controller_connected:
+                        self.controller_connected = True
+                        self.controller_warning_shown = False
+                        self.controller_disconnect_time = None
+                        self.no_controller_overlay_shown = False  # Reset overlay flag when controller connects
+                        self.root.after(0, self.update_controller_name_status)
+                        # Hide overlay if it was shown due to no controller
+                        self.root.after(0, self.hide_overlay_on_controller_connect)
+                    for event in events:
+                        if not self.running:
+                            break
+                        self.process_controller_event(event)
+                else:
+                    # No gamepad events but keep checking
+                    time.sleep(0.1)
             except Exception:
-                self.root.after(0, lambda: self.set_status("Waiting for controller"))
+                # Controller disconnected or unavailable
+                if self.controller_connected or not self.controller_warning_shown:
+                    self.controller_connected = False
+                    if self.controller_disconnect_time is None:
+                        self.controller_disconnect_time = time.time()
+                    else:
+                        elapsed = time.time() - self.controller_disconnect_time
+                        if elapsed >= self.controller_warning_timeout and not self.controller_warning_shown:
+                            self.controller_warning_shown = True
+                            self.root.after(0, lambda: self.set_status("⚠ No Controller Detected"))
+                        elif elapsed < self.controller_warning_timeout:
+                            self.root.after(0, lambda: self.set_status("Waiting for controller..."))
                 time.sleep(0.4)
+
+    def periodic_controller_check(self):
+        """Check for controller name every 5 seconds"""
+        if self.running:
+            if self.controller_connected:
+                self.update_controller_name_status()
+            self.root.after(5000, self.periodic_controller_check)
+
+    def detect_controller_name(self):
+        """Attempt to detect the connected controller name"""
+        try:
+            import inputs
+            # Try to get device information from the inputs library
+            if hasattr(inputs, 'get_devices'):
+                devices = inputs.get_devices()
+                if devices:
+                    for device in devices:
+                        if hasattr(device, 'name'):
+                            return device.name
+                        elif hasattr(device, '_name'):
+                            return device._name
+                        # Return device string representation if available
+                        device_str = str(device)
+                        if device_str and device_str != '<GamePad ()>':
+                            return device_str
+            # Fallback: Try to get from gamepad event
+            events = get_gamepad(timeout=0.1)
+            if events and len(events) > 0:
+                event = events[0]
+                if hasattr(event, 'device'):
+                    return event.device
+        except Exception:
+            pass
+        return None
+
+    def update_controller_name_status(self):
+        """Update status with controller name if detected"""
+        controller_name = self.detect_controller_name()
+        if controller_name:
+            self.controller_name = controller_name
+            self.set_status(f"Controller: {controller_name}")
+        else:
+            self.set_status("Controller connected")
+
+    def check_and_show_overlay_if_no_controller(self):
+        """Automatically show overlay menu if no controller is detected at startup"""
+        if not self.running or self.no_controller_overlay_shown:
+            return
+        if not self.controller_connected:
+            self.no_controller_overlay_shown = True
+            self.overlay_active = True
+            self.overlay_target_y = 18
+            self.overlay.deiconify()
+            self.overlay.lift()
 
     def tick(self):
         if not self.running:
