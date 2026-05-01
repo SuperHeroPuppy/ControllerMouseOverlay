@@ -23,7 +23,7 @@ A Python application that allows you to control your mouse cursor using a game c
 
 1. **Clone the Repository**:
    ```bash
-   git clone https://github.com/yourusername/ControllerMouseOverlay.git
+   git clone https://github.com/SuperHeroPuppy/ControllerMouseOverlay.git
    cd ControllerMouseOverlay
    ```
 
