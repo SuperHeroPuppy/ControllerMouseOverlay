@@ -11,7 +11,7 @@ def build_page(self, parent):
     tk.Label(header, text="Module Manager", bg=COLORS["panel"], fg=COLORS["text"], font=("Segoe UI Semibold", 13)).pack(anchor="w")
     tk.Label(
         header,
-        text="Review core and additional modules, including versions, creators, descriptions, and load state.",
+        text="Review core, additional, and community modules, including versions, creators, descriptions, and load state.",
         bg=COLORS["panel"],
         fg=COLORS["muted"],
         font=("Segoe UI", 10),
@@ -35,7 +35,34 @@ def build_page(self, parent):
     tk.Label(optional_header, text="Additional Modules", bg=COLORS["card_alt"], fg=COLORS["text"], font=("Segoe UI Semibold", 13)).pack(side="left")
     _build_action_button(optional_header, "Reload All", self.reload_all_optional_modules, bg=COLORS["panel_alt"]).pack_configure(side="right", padx=(0, 0))
     self.modules_optional_list_frame = tk.Frame(optional_card, bg=COLORS["card_alt"])
-    self.modules_optional_list_frame.pack(fill="both", expand=True, pady=(10, 0))
+    self.modules_optional_list_frame.pack(fill="x", pady=(10, 0))
+
+    community_header = tk.Frame(optional_card, bg=COLORS["card_alt"])
+    community_header.pack(fill="x", pady=(14, 0))
+    tk.Label(community_header, text="Community Modules", bg=COLORS["card_alt"], fg=COLORS["text"], font=("Segoe UI Semibold", 12)).pack(side="left")
+    _build_action_button(community_header, "Reload All", self.reload_all_community_modules, bg=COLORS["panel_alt"]).pack_configure(side="right", padx=(0, 0))
+
+    tk.Label(
+        optional_card,
+        text="Warning: Community modules may require additional third-party libraries.",
+        bg=COLORS["card_alt"],
+        fg=COLORS["danger"],
+        font=("Segoe UI Semibold", 9),
+        wraplength=390,
+        justify="left",
+    ).pack(anchor="w", pady=(8, 0))
+    tk.Label(
+        optional_card,
+        text="Warning: Community modules may contain malicious code. Be careful when running community modules.",
+        bg=COLORS["card_alt"],
+        fg=COLORS["danger"],
+        font=("Segoe UI Semibold", 9),
+        wraplength=390,
+        justify="left",
+    ).pack(anchor="w", pady=(6, 0))
+
+    self.modules_community_list_frame = tk.Frame(optional_card, bg=COLORS["card_alt"])
+    self.modules_community_list_frame.pack(fill="both", expand=True, pady=(10, 0))
 
     refresh(self)
     return frame
@@ -48,10 +75,13 @@ def refresh(self):
         child.destroy()
     for child in self.modules_optional_list_frame.winfo_children():
         child.destroy()
+    for child in self.modules_community_list_frame.winfo_children():
+        child.destroy()
 
     metadata = self.discover_module_metadata()
     _build_group(self, self.modules_core_list_frame, metadata["core"], "core", COLORS["card"])
     _build_group(self, self.modules_optional_list_frame, metadata["optional"], "optional", COLORS["card_alt"])
+    _build_group(self, self.modules_community_list_frame, metadata["community"], "community", COLORS["card_alt"])
 
 
 def _build_group(self, parent, modules, module_type, bg):
@@ -132,13 +162,20 @@ def _build_module_row(self, parent, info, module_type, registry_name, is_loaded,
                 _build_action_button(actions, "Unload", lambda name=registry_name: self.unload_core_module(name), bg=COLORS["danger"])
         else:
             _build_action_button(actions, "Load", lambda name=registry_name: self.load_core_module(name, activate=False), bg=COLORS["accent_alt"])
-    else:
+    elif module_type == "optional":
         if is_loaded:
             _build_action_button(actions, "Open", lambda name=registry_name: self.set_active_page(name))
             _build_action_button(actions, "Reload", lambda name=registry_name: self.reload_optional_module(name))
             _build_action_button(actions, "Unload", lambda name=registry_name: self.unload_optional_module(name), bg=COLORS["danger"])
         else:
             _build_action_button(actions, "Load", lambda name=registry_name: self.load_optional_module(name), bg=COLORS["accent_alt"])
+    else:
+        if is_loaded:
+            _build_action_button(actions, "Open", lambda name=registry_name: self.set_active_page(name))
+            _build_action_button(actions, "Reload", lambda name=registry_name: self.reload_community_module(name))
+            _build_action_button(actions, "Unload", lambda name=registry_name: self.unload_community_module(name), bg=COLORS["danger"])
+        else:
+            _build_action_button(actions, "Load", lambda name=registry_name: self.load_community_module(name), bg=COLORS["accent_alt"])
 
 
 def _is_loaded(self, module_type, registry_name):
@@ -146,7 +183,9 @@ def _is_loaded(self, module_type, registry_name):
         if registry_name == "core":
             return True
         return self.core_modules.get(registry_name) is not None
-    return registry_name in self.loaded_optional_modules
+    if module_type == "optional":
+        return registry_name in self.loaded_optional_modules
+    return registry_name in self.loaded_community_modules
 
 
 def _build_action_button(parent, text, command, bg=None, disabled=False):
