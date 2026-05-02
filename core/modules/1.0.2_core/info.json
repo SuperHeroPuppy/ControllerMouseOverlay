@@ -1,0 +1,10 @@
+{
+  "version": "1.0.2",
+  "display_name": "Core",
+  "registry_name": "core",
+  "description": "Required program core: app runtime (launcher-loaded core.py), shared configuration, constants, registry loader, default settings, and bundled core modules.",
+  "creators": [
+    "SuperHeroPuppy",
+    "LianJordaan"
+  ]
+}

@@ -11,7 +11,7 @@ def build_page(self, parent):
     tk.Label(header, text="Module Manager", bg=COLORS["panel"], fg=COLORS["text"], font=("Segoe UI Semibold", 13)).pack(anchor="w")
     tk.Label(
         header,
-        text="Review core, additional, and community modules, including versions, creators, descriptions, and load state.",
+        text="Review core, additional, and community modules, including versions, creators, descriptions, and load state. Additional and community modules may list required libraries in metadata.",
         bg=COLORS["panel"],
         fg=COLORS["muted"],
         font=("Segoe UI", 10),
@@ -84,6 +84,18 @@ def refresh(self):
     _build_group(self, self.modules_community_list_frame, metadata["community"], "community", COLORS["card_alt"])
 
 
+def _normalize_libraries(info):
+    raw = info.get("libraries")
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        stripped = raw.strip()
+        return [stripped] if stripped else []
+    if isinstance(raw, list):
+        return [str(item).strip() for item in raw if str(item).strip()]
+    return []
+
+
 def _build_group(self, parent, modules, module_type, bg):
     if not modules:
         tk.Label(
@@ -130,6 +142,20 @@ def _build_module_row(self, parent, info, module_type, registry_name, is_loaded,
         wraplength=390,
         justify="left",
     ).pack(anchor="w", pady=(8, 0))
+
+    if module_type != "core":
+        libraries = _normalize_libraries(info)
+        if libraries:
+            libs_body = "\n".join(f"  • {lib}" for lib in libraries)
+            tk.Label(
+                row,
+                text=f"Required libraries:\n{libs_body}",
+                bg=COLORS["panel"],
+                fg=COLORS["muted"],
+                font=("Segoe UI", 9),
+                wraplength=390,
+                justify="left",
+            ).pack(anchor="w", pady=(6, 0))
 
     creators = info.get("creators") or []
     if isinstance(creators, list):

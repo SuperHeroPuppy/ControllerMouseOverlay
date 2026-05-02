@@ -38,7 +38,7 @@ A Python application that allows you to control your mouse cursor using a game c
 
 3. **Run the Application**:
    ```bash
-   python app.py
+   python launcher.py
    ```
 
 ## Usage

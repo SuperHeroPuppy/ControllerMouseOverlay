@@ -3,6 +3,11 @@
   "display_name": "Controller Remapper",
   "registry_name": "remapper",
   "description": "Controller input and analog remapper.",
+  "libraries": [
+    "core",
+    "pygame",
+    "vgamepad"
+  ],
   "creators": [
     "LianJordaan"
   ]

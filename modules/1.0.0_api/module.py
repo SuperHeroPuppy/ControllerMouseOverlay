@@ -91,7 +91,8 @@ def _build_info_schema(parent):
   "display_name": "My Tool",
   "registry_name": "my_tool",
   "description": "What your module does.",
-  "creators": ["Your Name"]
+  "creators": ["Your Name"],
+  "libraries": ["pypi-package-name"]
 }""",
         bg=COLORS["panel_alt"],
     )
@@ -128,10 +129,10 @@ def _build_core_notes(parent):
     card = _build_card(parent, "Core Module", COLORS["card"])
     for label, value in [
         ("Registry name", "core"),
-        ("Folder name", "core"),
-        ("Rule", "The required core module is the only module exempt from the versioned folder naming pattern."),
-        ("Startup", "The root app.py loader refuses to start if core, core/app.py, or core/info.json is missing."),
-        ("Version", "core/info.json holds the program version shown in the Modules page."),
+        ("Folder name", "Versioned folder under core/modules/ containing core.py (see registry)."),
+        ("Rule", "Discovery picks the folder with core.py, info registry_name core, no module.py; highest semver wins if several exist."),
+        ("Startup", "launcher.py needs core/ plus one resolved runtime folder (core.py + info.json)."),
+        ("Version", "That folder's info.json supplies version and metadata for Core on the Modules page."),
     ]:
         _build_wrapped_fact(card, label, value, COLORS["card"])
 
@@ -142,6 +143,7 @@ def _build_manager_notes(parent):
         ("Core modules", "Can be loaded, reloaded, or unloaded unless they are required for management."),
         ("Additional modules", "Can be loaded, opened, reloaded, unloaded, or reloaded together."),
         ("Metadata", "Display name, version, creators, and description come from info.json."),
+        ("Libraries field", "Optional libraries list is for additional and community modules only; core modules do not use it in the Modules UI."),
         ("Errors", "Loader errors are stored on the app and shown by missing-module pages."),
     ]:
         _build_wrapped_fact(card, label, value, COLORS["card_alt"])

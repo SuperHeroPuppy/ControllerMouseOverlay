@@ -11,7 +11,18 @@ from inputs import get_gamepad
 import win32api
 import win32con
 
-from core.app_config import APP_DIR, COMMUNITY_MODULES_DIR, CONTROL_SHEET_EXPORT_DIR, CORE_DIR, CORE_MODULES_DIR, EXPORT_DIR, OPTIONAL_MODULES_DIR, SETTINGS_PATH, STYLE_EXPORT_DIR
+from core.app_config import (
+    APP_DIR,
+    COMMUNITY_MODULES_DIR,
+    CONTROL_SHEET_EXPORT_DIR,
+    CORE_DIR,
+    CORE_MODULES_DIR,
+    EXPORT_DIR,
+    OPTIONAL_MODULES_DIR,
+    SETTINGS_PATH,
+    STYLE_EXPORT_DIR,
+    get_core_runtime_dir,
+)
 from core.controller_constants import (
     ACTION_DEFINITIONS,
     ACTION_KEYS,
@@ -710,8 +721,10 @@ class ControllerMouseOverlayApp:
         self.refresh_modules_page()
 
     def discover_module_metadata(self):
+        core_runtime_dir = get_core_runtime_dir()
+        core_runtime_folder = os.path.basename(core_runtime_dir)
         try:
-            core_info = read_module_info(CORE_DIR)
+            core_info = read_module_info(core_runtime_dir)
         except ModuleLoadError as exc:
             core_info = {
                 "version": "Unknown",
@@ -721,7 +734,8 @@ class ControllerMouseOverlayApp:
                 "creators": [],
             }
         return {
-            "core": [{"folder": "core", "path": CORE_DIR, "info": core_info}] + discover_registered_modules(CORE_MODULES_DIR),
+            "core": [{"folder": core_runtime_folder, "path": core_runtime_dir, "info": core_info}]
+            + discover_registered_modules(CORE_MODULES_DIR),
             "optional": discover_registered_modules(OPTIONAL_MODULES_DIR),
             "community": discover_registered_modules(COMMUNITY_MODULES_DIR),
         }

@@ -3,6 +3,9 @@
   "display_name": "Controller Tester",
   "registry_name": "tester",
   "description": "Optional live controller input and analog state tester.",
+  "libraries": [
+    "Core"
+  ],
   "creators": [
     "SuperHeroPuppy"
   ]
