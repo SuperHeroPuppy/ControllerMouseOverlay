@@ -119,8 +119,13 @@ class RemapperState:
         self.calibration_progress: Any = None
         self.calibration_back_btn: Any = None
         self.calibration_skip_btn: Any = None
+        self.auto_remap_var: Optional[tk.BooleanVar] = None
 
         self.log_lines: List[str] = []
+        self.auto_remap_enabled = False
+        self.auto_target_controller_name: Optional[str] = None
+        self.auto_last_poll_at = 0.0
+        self.auto_last_present: Optional[bool] = None
 
 
 def _state(app) -> RemapperState:
@@ -222,10 +227,14 @@ def _clear_pending_events() -> None:
         pygame.event.clear()
 
 
-def _get_controller_list() -> List[Tuple[int, str]]:
+def _get_controller_list(force_reinit: bool = False) -> List[Tuple[int, str]]:
     _init_pygame()
     if pygame is None:
         return []
+
+    if force_reinit and pygame.joystick.get_init():
+        pygame.joystick.quit()
+        pygame.joystick.init()
 
     controllers: List[Tuple[int, str]] = []
     for idx in range(pygame.joystick.get_count()):
@@ -792,6 +801,101 @@ def _selected_joystick(app):
     return state.joystick
 
 
+def _get_selected_controller_name(app) -> Optional[str]:
+    state = _state(app)
+    if not state.controller_choices:
+        return None
+
+    selected = 0
+    combo = state.controller_combo
+    if combo is not None and combo.winfo_exists():
+        current = combo.current()
+        if current >= 0:
+            selected = current
+
+    if selected >= len(state.controller_choices):
+        return None
+    return state.controller_choices[selected][1]
+
+
+def _open_controller_by_name(app, controller_name: str):
+    state = _state(app)
+    try:
+        choices = _get_controller_list()
+    except Exception:
+        return None
+
+    state.controller_choices = choices
+    for idx, name in choices:
+        if name == controller_name:
+            state.joystick = _open_controller(idx)
+            return state.joystick
+    return None
+
+
+def _auto_remap_monitor_tick(app, force: bool = False) -> None:
+    state = _state(app)
+    if not state.auto_remap_enabled:
+        return
+
+    target_name = state.auto_target_controller_name
+    if not target_name:
+        return
+
+    now = time.time()
+    if not force and (now - state.auto_last_poll_at) < 1.0:
+        return
+    state.auto_last_poll_at = now
+
+    remap_active = bool(state.remap_thread and state.remap_thread.is_alive())
+    force_reinit = not remap_active
+
+    try:
+        connected = _get_controller_list(force_reinit=force_reinit)
+    except Exception:
+        connected = []
+
+    present = any(name == target_name for _idx, name in connected)
+
+    if state.auto_last_present is None or present != state.auto_last_present:
+        if present:
+            _log(app, "Auto remap: detected controller '" + target_name + "'.")
+        else:
+            _log(app, "Auto remap: controller disconnected '" + target_name + "'.")
+    state.auto_last_present = present
+
+    if present and not remap_active:
+        _start_remap(app, preferred_controller_name=target_name, suppress_errors=True)
+        return
+
+    if (not present) and remap_active:
+        _stop_remap(app)
+
+
+def _set_auto_remap_enabled(app, enabled: bool) -> None:
+    state = _state(app)
+    state.auto_remap_enabled = enabled
+
+    if not enabled:
+        state.auto_last_present = None
+        _log(app, "Auto remap disabled.")
+        return
+
+    selected_name = _get_selected_controller_name(app)
+    if not selected_name:
+        state.auto_remap_enabled = False
+        if state.auto_remap_var is not None:
+            state.auto_remap_var.set(False)
+        _log(app, "Auto remap requires a selected controller.")
+        return
+
+    state.auto_target_controller_name = selected_name
+    state.auto_last_poll_at = 0.0
+    state.auto_last_present = None
+    _log(app, "Auto remap enabled for '" + selected_name + "'.")
+    _auto_remap_monitor_tick(app, force=True)
+
+
 def _prompt_step(app, title: str, body: str) -> bool:
     state = _state(app)
     parent = state.frame if state.frame is not None and state.frame.winfo_exists() else app.root
@@ -1012,10 +1116,12 @@ def _remap_loop(app, joystick, mapping: Dict[str, Any]) -> None:
         state.ui_queue.put(("stopped", "Remapper stopped."))
 
 
-def _start_remap(app) -> None:
+def _start_remap(app, preferred_controller_name: Optional[str] = None, suppress_errors: bool = False) -> None:
     state = _state(app)
 
     if vg is None:
+        if suppress_errors:
+            return
         messagebox.showerror(
             "Missing dependency",
             "vgamepad is not installed. Install vgamepad (and ViGEmBus) to start remapping.",
@@ -1024,19 +1130,30 @@ def _start_remap(app) -> None:
         return
 
     if pygame is None:
+        if suppress_errors:
+            return
         messagebox.showerror("Missing dependency", "pygame is required to read controller input.", parent=app.root)
         return
 
-    joystick = _selected_joystick(app)
+    if preferred_controller_name:
+        joystick = _open_controller_by_name(app, preferred_controller_name)
+    else:
+        joystick = _selected_joystick(app)
     if joystick is None:
+        if suppress_errors:
+            return
         messagebox.showerror("No controller", "No controller detected.", parent=app.root)
         return
 
     if state.mapping is None:
+        if suppress_errors:
+            return
         messagebox.showwarning("No mapping", "No mapping found. Run calibration first.", parent=app.root)
         return
 
     if not _mapping_has_required_axes(state.mapping):
+        if suppress_errors:
+            return
         messagebox.showwarning("Invalid mapping", "Mapping is missing required analog entries. Recalibrate.", parent=app.root)
         return
 
@@ -1099,6 +1216,21 @@ def build_page(self, parent):
     state.controller_combo.pack(side="left", padx=(10, 8), fill="x", expand=True)
 
     ttk.Button(row, text="Refresh", command=lambda: _refresh_controllers(self)).pack(side="left")
+
+    auto_remap_var = tk.BooleanVar(value=state.auto_remap_enabled)
+    state.auto_remap_var = auto_remap_var
+    tk.Checkbutton(
+        control_card,
+        text="Auto remap selected controller",
+        variable=auto_remap_var,
+        command=lambda: _set_auto_remap_enabled(self, bool(auto_remap_var.get())),
+        bg=COLORS["panel"],
+        fg=COLORS["text"],
+        activebackground=COLORS["panel"],
+        activeforeground=COLORS["text"],
+        selectcolor=COLORS["panel_alt"],
+        font=("Segoe UI", 9),
+    ).pack(anchor="w", pady=(8, 0))
 
     state.mapping_label = tk.Label(control_card, text="", bg=COLORS["panel"], fg=COLORS["muted"], font=("Segoe UI", 10), wraplength=470, justify="left")
     state.mapping_label.pack(anchor="w", pady=(10, 0))
@@ -1302,6 +1434,7 @@ def refresh(self):
 
     remap_active = bool(state.remap_thread and state.remap_thread.is_alive())
     _set_action_buttons_enabled(self, remap_active=remap_active)
+    _auto_remap_monitor_tick(self)
 
     if remap_active and state.status_var is not None and not state.status_var.get():
         state.status_var.set("Remapping active")
