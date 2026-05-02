@@ -21,11 +21,17 @@ except ImportError:
     vg = None
 
 
-MODULE_DIR = os.path.dirname(__file__)
 REMAPPER_APP_DIR = os.path.join(APP_DIR, "remapper")
 MAPPING_FILE = os.path.join(REMAPPER_APP_DIR, "mapping.json")
+MAPPING_FILE_TEMPLATE = os.path.join(REMAPPER_APP_DIR, "mapping_{profile}.json")
 DEADZONE = 0.15
 POLL_DELAY = 0.005
+
+OUTPUT_PROFILE_LABELS = {
+    "xbox": "Xbox 360 (XInput)",
+    "ps": "PlayStation (DS4)",
+}
+OUTPUT_PROFILE_BY_LABEL = {label: key for key, label in OUTPUT_PROFILE_LABELS.items()}
 
 DIGITAL_TARGETS = [
     "A",
@@ -70,7 +76,7 @@ ANALOG_TARGETS = [
     ("RT", "Squeeze RIGHT trigger"),
 ]
 
-DIGITAL_BUTTON_ENUM = {
+XBOX_DIGITAL_BUTTON_ENUM = {
     "A": vg.XUSB_BUTTON.XUSB_GAMEPAD_A,
     "B": vg.XUSB_BUTTON.XUSB_GAMEPAD_B,
     "X": vg.XUSB_BUTTON.XUSB_GAMEPAD_X,
@@ -85,6 +91,34 @@ DIGITAL_BUTTON_ENUM = {
     "DPAD_DOWN": vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN,
     "DPAD_LEFT": vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT,
     "DPAD_RIGHT": vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT,
+} if vg is not None else {}
+
+
+def _vg_attr(root, attr: str):
+    if root is None:
+        return None
+    return getattr(root, attr, None)
+
+
+def _vg_attr_any(root, names: List[str]):
+    for name in names:
+        value = _vg_attr(root, name)
+        if value is not None:
+            return value
+    return None
+
+
+PS_DIGITAL_BUTTON_ENUM = {
+    "A": _vg_attr_any(_vg_attr(vg, "DS4_BUTTONS"), ["DS4_BUTTON_CROSS"]),
+    "B": _vg_attr_any(_vg_attr(vg, "DS4_BUTTONS"), ["DS4_BUTTON_CIRCLE"]),
+    "X": _vg_attr_any(_vg_attr(vg, "DS4_BUTTONS"), ["DS4_BUTTON_SQUARE"]),
+    "Y": _vg_attr_any(_vg_attr(vg, "DS4_BUTTONS"), ["DS4_BUTTON_TRIANGLE"]),
+    "LB": _vg_attr_any(_vg_attr(vg, "DS4_BUTTONS"), ["DS4_BUTTON_SHOULDER_LEFT"]),
+    "RB": _vg_attr_any(_vg_attr(vg, "DS4_BUTTONS"), ["DS4_BUTTON_SHOULDER_RIGHT"]),
+    "BACK": _vg_attr_any(_vg_attr(vg, "DS4_BUTTONS"), ["DS4_BUTTON_SHARE"]),
+    "START": _vg_attr_any(_vg_attr(vg, "DS4_BUTTONS"), ["DS4_BUTTON_OPTIONS"]),
+    "LS": _vg_attr_any(_vg_attr(vg, "DS4_BUTTONS"), ["DS4_BUTTON_THUMB_LEFT"]),
+    "RS": _vg_attr_any(_vg_attr(vg, "DS4_BUTTONS"), ["DS4_BUTTON_THUMB_RIGHT"]),
 } if vg is not None else {}
 
 
@@ -120,12 +154,15 @@ class RemapperState:
         self.calibration_back_btn: Any = None
         self.calibration_skip_btn: Any = None
         self.auto_remap_var: Optional[tk.BooleanVar] = None
+        self.output_profile_var: Optional[tk.StringVar] = None
+        self.output_profile_combo: Any = None
 
         self.log_lines: List[str] = []
         self.auto_remap_enabled = False
         self.auto_target_controller_name: Optional[str] = None
         self.auto_last_poll_at = 0.0
         self.auto_last_present: Optional[bool] = None
+        self.output_profile = "xbox"
 
 
 def _state(app) -> RemapperState:
@@ -152,8 +189,70 @@ def normalize_trigger(value: float, mode: str) -> float:
     return clamp((value + 1.0) / 2.0, 0.0, 1.0)
 
 
-def _dependencies_ready() -> bool:
-    return pygame is not None and vg is not None
+def _supports_ps_output() -> bool:
+    return bool(vg is not None and hasattr(vg, "VDS4Gamepad") and hasattr(vg, "DS4_BUTTONS"))
+
+
+def _dialog_parent(app):
+    state = _state(app)
+    if state.frame is not None and state.frame.winfo_exists():
+        return state.frame
+    overlay = getattr(app, "overlay", None)
+    if overlay is not None and overlay.winfo_exists():
+        return overlay
+    return app.root
+
+
+def _get_selected_output_profile(app) -> str:
+    state = _state(app)
+    if state.output_profile_var is None:
+        return state.output_profile
+    label = state.output_profile_var.get().strip()
+    return OUTPUT_PROFILE_BY_LABEL.get(label, "xbox")
+
+
+def _sync_output_profile_ui(app) -> None:
+    state = _state(app)
+    if state.output_profile_var is None:
+        return
+    label = OUTPUT_PROFILE_LABELS.get(state.output_profile, OUTPUT_PROFILE_LABELS["xbox"])
+    state.output_profile_var.set(label)
+
+
+def _on_output_profile_changed(app) -> None:
+    state = _state(app)
+    remap_active = bool(state.remap_thread and state.remap_thread.is_alive())
+    if remap_active:
+        _sync_output_profile_ui(app)
+        messagebox.showwarning(
+            "Remapper running",
+            "Stop remapping before changing output profile.",
+            parent=_dialog_parent(app),
+        )
+        return
+
+    selected = _get_selected_output_profile(app)
+    if selected == "ps" and not _supports_ps_output():
+        messagebox.showwarning(
+            "PS output unavailable",
+            "PlayStation virtual output is not available in this vgamepad install. Falling back to Xbox output.",
+            parent=_dialog_parent(app),
+        )
+        state.output_profile = "xbox"
+        _sync_output_profile_ui(app)
+        return
+
+    state.output_profile = selected
+    state.mapping = _load_mapping(state.output_profile)
+    _set_mapping_label(app)
+    _set_action_buttons_enabled(app, remap_active=False)
+    _set_dependency_label(app)
+    if state.mapping is None:
+        _log(app, "No mapping saved for output " + OUTPUT_PROFILE_LABELS[state.output_profile])
+    else:
+        controller_name = state.mapping.get("meta", {}).get("controller_name", "unknown")
+        _log(app, "Loaded mapping for " + controller_name + " on " + OUTPUT_PROFILE_LABELS[state.output_profile])
+    _log(app, "Output profile set to " + OUTPUT_PROFILE_LABELS[state.output_profile])
 
 
 def _dependency_message() -> str:
@@ -165,6 +264,33 @@ def _dependency_message() -> str:
     if not missing:
         return ""
     return "Missing dependency: " + ", ".join(missing)
+
+
+def _create_virtual_gamepad(output_profile: str):
+    if vg is None:
+        return None, "vgamepad is not installed"
+    if output_profile == "ps":
+        if not _supports_ps_output():
+            return None, "PlayStation output is unavailable in this vgamepad build"
+        return vg.VDS4Gamepad(), "Virtual PlayStation controller created."
+    return vg.VX360Gamepad(), "Virtual Xbox controller created."
+
+
+def _set_analog_output(gamepad, lx: float, ly: float, rx: float, ry: float, lt: float, rt: float) -> None:
+    if hasattr(gamepad, "left_joystick_float"):
+        gamepad.left_joystick_float(x_value_float=lx, y_value_float=-ly)
+    if hasattr(gamepad, "right_joystick_float"):
+        gamepad.right_joystick_float(x_value_float=rx, y_value_float=-ry)
+
+    if hasattr(gamepad, "left_trigger_float"):
+        gamepad.left_trigger_float(value_float=lt)
+    elif hasattr(gamepad, "left_trigger"):
+        gamepad.left_trigger(value=max(0, min(255, int(round(lt * 255.0)))))
+
+    if hasattr(gamepad, "right_trigger_float"):
+        gamepad.right_trigger_float(value_float=rt)
+    elif hasattr(gamepad, "right_trigger"):
+        gamepad.right_trigger(value=max(0, min(255, int(round(rt * 255.0)))))
 
 
 def _consume_calibration_nav_action(app) -> Optional[str]:
@@ -415,6 +541,7 @@ def _run_calibration(
         "meta": {
             "controller_name": joystick.get_name(),
             "created_unix": time.time(),
+            "output_profile": _state(app).output_profile,
         },
         "digital": {},
         "analog": {},
@@ -513,6 +640,7 @@ def _run_calibration(
 
 
 def _run_trigger_recalibration(
+    app,
     joystick,
     mapping: Dict[str, Any],
     prompt_step: Callable[[str, str], bool],
@@ -529,6 +657,7 @@ def _run_trigger_recalibration(
 
     updated["meta"]["controller_name"] = joystick.get_name()
     updated["meta"]["updated_unix"] = time.time()
+    updated["meta"]["output_profile"] = _state(app).output_profile
 
     for target, prompt in (("LT", "Squeeze LEFT trigger"), ("RT", "Squeeze RIGHT trigger")):
         title = "Remap " + target
@@ -544,16 +673,31 @@ def _run_trigger_recalibration(
     return updated
 
 
-def _save_mapping(mapping: Dict[str, Any]) -> None:
+def _mapping_file_for_profile(output_profile: str) -> str:
+    safe_profile = output_profile if output_profile in OUTPUT_PROFILE_LABELS else "xbox"
+    return MAPPING_FILE_TEMPLATE.format(profile=safe_profile)
+
+
+def _save_mapping(mapping: Dict[str, Any], output_profile: str) -> None:
     os.makedirs(REMAPPER_APP_DIR, exist_ok=True)
-    with open(MAPPING_FILE, "w", encoding="utf-8") as handle:
+    mapping.setdefault("meta", {})["output_profile"] = output_profile
+    profile_file = _mapping_file_for_profile(output_profile)
+    with open(profile_file, "w", encoding="utf-8") as handle:
         json.dump(mapping, handle, indent=2)
 
 
-def _load_mapping() -> Optional[Dict[str, Any]]:
-    if os.path.exists(MAPPING_FILE):
-        with open(MAPPING_FILE, "r", encoding="utf-8") as handle:
+def _load_mapping(output_profile: str) -> Optional[Dict[str, Any]]:
+    profile_file = _mapping_file_for_profile(output_profile)
+    if os.path.exists(profile_file):
+        with open(profile_file, "r", encoding="utf-8") as handle:
             return json.load(handle)
+
+    # Backward compatibility with old single mapping file.
+    if output_profile == "xbox" and os.path.exists(MAPPING_FILE):
+        with open(MAPPING_FILE, "r", encoding="utf-8") as handle:
+            loaded = json.load(handle)
+        loaded.setdefault("meta", {})["output_profile"] = "xbox"
+        return loaded
 
     return None
 
@@ -602,9 +746,10 @@ def _read_analog_source(joystick, source: Dict[str, Any], target: str) -> float:
     return signed_normalize_stick(value, DEADZONE)
 
 
-def _apply_digital(gamepad, digital_state: Dict[str, bool]) -> None:
+def _apply_digital(gamepad, digital_state: Dict[str, bool], output_profile: str) -> None:
+    button_map = PS_DIGITAL_BUTTON_ENUM if output_profile == "ps" else XBOX_DIGITAL_BUTTON_ENUM
     for target, pressed in digital_state.items():
-        button = DIGITAL_BUTTON_ENUM.get(target)
+        button = button_map.get(target)
         if button is None:
             continue
         if pressed:
@@ -678,10 +823,10 @@ def _set_dependency_label(app) -> None:
         return
 
     message = _dependency_message()
-    state.dependency_label.config(
-        text=message,
-        fg=COLORS["danger"],
-    )
+    if not message and state.output_profile == "ps" and not _supports_ps_output():
+        message = "PlayStation output unavailable in current vgamepad install"
+
+    state.dependency_label.config(text=message, fg=COLORS["danger"] if message else COLORS["muted"])
 
 
 def _set_mapping_label(app) -> None:
@@ -690,11 +835,11 @@ def _set_mapping_label(app) -> None:
         return
 
     if state.mapping is None:
-        state.mapping_label.config(text="No mapping loaded")
+        state.mapping_label.config(text="No mapping loaded for " + OUTPUT_PROFILE_LABELS.get(state.output_profile, "current output"))
         return
 
     controller_name = state.mapping.get("meta", {}).get("controller_name", "Unknown")
-    text = "Loaded mapping for " + controller_name
+    text = "Loaded mapping for " + controller_name + " (" + OUTPUT_PROFILE_LABELS.get(state.output_profile, "Output") + ")"
     state.mapping_label.config(text=text)
 
 
@@ -897,9 +1042,7 @@ def _set_auto_remap_enabled(app, enabled: bool) -> None:
 
 
 def _prompt_step(app, title: str, body: str) -> bool:
-    state = _state(app)
-    parent = state.frame if state.frame is not None and state.frame.winfo_exists() else app.root
-    return messagebox.askokcancel(title, body, parent=parent)
+    return messagebox.askokcancel(title, body, parent=_dialog_parent(app))
 
 
 def _pump_ui_queue(app) -> None:
@@ -966,23 +1109,23 @@ def _calibrate(app) -> None:
     state = _state(app)
 
     if state.remap_thread and state.remap_thread.is_alive():
-        messagebox.showwarning("Remapper running", "Stop remapping before calibrating.", parent=app.root)
+        messagebox.showwarning("Remapper running", "Stop remapping before calibrating.", parent=_dialog_parent(app))
         return
 
     if pygame is None:
-        messagebox.showerror("Missing dependency", "pygame is required for calibration.", parent=app.root)
+        messagebox.showerror("Missing dependency", "pygame is required for calibration.", parent=_dialog_parent(app))
         return
 
     joystick = _selected_joystick(app)
     if joystick is None:
-        messagebox.showerror("No controller", "No controller detected.", parent=app.root)
+        messagebox.showerror("No controller", "No controller detected.", parent=_dialog_parent(app))
         return
 
     if state.mapping is not None:
         confirmed = messagebox.askyesno(
             "Confirm Recalibration",
             "A mapping already exists. Recalibrating will overwrite the current mapping. Continue?",
-            parent=app.root,
+            parent=_dialog_parent(app),
         )
         if not confirmed:
             return
@@ -1006,36 +1149,37 @@ def _calibrate(app) -> None:
 
     state.calibration_active = False
     state.mapping = new_mapping
-    _save_mapping(new_mapping)
+    _save_mapping(new_mapping, state.output_profile)
     _set_mapping_label(app)
     _set_action_buttons_enabled(app, remap_active=False)
     _set_status(app, "Calibration complete")
-    _log(app, "Saved mapping to " + MAPPING_FILE)
-    messagebox.showinfo("Done", "Calibration saved.", parent=app.root)
+    _log(app, "Saved mapping to " + _mapping_file_for_profile(state.output_profile))
+    messagebox.showinfo("Done", "Calibration saved.", parent=_dialog_parent(app))
 
 
 def _recalibrate_triggers(app) -> None:
     state = _state(app)
 
     if state.remap_thread and state.remap_thread.is_alive():
-        messagebox.showwarning("Remapper running", "Stop remapping before remapping triggers.", parent=app.root)
+        messagebox.showwarning("Remapper running", "Stop remapping before remapping triggers.", parent=_dialog_parent(app))
         return
 
     if pygame is None:
-        messagebox.showerror("Missing dependency", "pygame is required for calibration.", parent=app.root)
+        messagebox.showerror("Missing dependency", "pygame is required for calibration.", parent=_dialog_parent(app))
         return
 
     joystick = _selected_joystick(app)
     if joystick is None:
-        messagebox.showerror("No controller", "No controller detected.", parent=app.root)
+        messagebox.showerror("No controller", "No controller detected.", parent=_dialog_parent(app))
         return
 
     if state.mapping is None:
-        messagebox.showwarning("No mapping", "No existing mapping found. Run full calibration first.", parent=app.root)
+        messagebox.showwarning("No mapping", "No existing mapping found. Run full calibration first.", parent=_dialog_parent(app))
         return
 
     _set_status(app, "Recalibrating LT/RT...")
     updated_mapping = _run_trigger_recalibration(
+        app=app,
         joystick=joystick,
         mapping=state.mapping,
         prompt_step=lambda title, body: _prompt_step(app, title, body),
@@ -1048,15 +1192,15 @@ def _recalibrate_triggers(app) -> None:
         return
 
     state.mapping = updated_mapping
-    _save_mapping(updated_mapping)
+    _save_mapping(updated_mapping, state.output_profile)
     _set_mapping_label(app)
     _set_action_buttons_enabled(app, remap_active=False)
     _set_status(app, "LT/RT recalibration complete")
     _log(app, "Saved updated LT/RT mapping")
-    messagebox.showinfo("Done", "Left and right triggers were remapped.", parent=app.root)
+    messagebox.showinfo("Done", "Left and right triggers were remapped.", parent=_dialog_parent(app))
 
 
-def _remap_loop(app, joystick, mapping: Dict[str, Any]) -> None:
+def _remap_loop(app, joystick, mapping: Dict[str, Any], output_profile: str) -> None:
     state = _state(app)
     pg = pygame
     vgp = vg
@@ -1064,8 +1208,12 @@ def _remap_loop(app, joystick, mapping: Dict[str, Any]) -> None:
         state.ui_queue.put(("status", "Missing remapper dependencies"))
         return
 
-    gamepad = vgp.VX360Gamepad()
-    state.ui_queue.put(("log", "Virtual Xbox controller created."))
+    gamepad, created_message = _create_virtual_gamepad(output_profile)
+    if gamepad is None:
+        state.ui_queue.put(("status", "Remapper output unavailable"))
+        state.ui_queue.put(("log", "Remapper error: " + created_message))
+        return
+    state.ui_queue.put(("log", created_message))
     start_was_pressed = False
 
     try:
@@ -1092,12 +1240,8 @@ def _remap_loop(app, joystick, mapping: Dict[str, Any]) -> None:
             lt = _read_analog_source(joystick, analog["LT"], "LT")
             rt = _read_analog_source(joystick, analog["RT"], "RT")
 
-            # XInput uses negative Y as up.
-            gamepad.left_joystick_float(x_value_float=lx, y_value_float=-ly)
-            gamepad.right_joystick_float(x_value_float=rx, y_value_float=-ry)
-            gamepad.left_trigger_float(value_float=lt)
-            gamepad.right_trigger_float(value_float=rt)
-            _apply_digital(gamepad, digital_state)
+            _set_analog_output(gamepad, lx, ly, rx, ry, lt, rt)
+            _apply_digital(gamepad, digital_state, output_profile)
             gamepad.update()
 
             _push_remapped_state_to_app(app, lx, ly, rx, ry, lt, rt, digital_state)
@@ -1119,20 +1263,31 @@ def _remap_loop(app, joystick, mapping: Dict[str, Any]) -> None:
 def _start_remap(app, preferred_controller_name: Optional[str] = None, suppress_errors: bool = False) -> None:
     state = _state(app)
 
+    state.output_profile = _get_selected_output_profile(app)
+    if state.output_profile == "ps" and not _supports_ps_output():
+        if suppress_errors:
+            return
+        messagebox.showerror(
+            "PS output unavailable",
+            "PlayStation virtual output is not available. Use Xbox output or install a vgamepad build with DS4 support.",
+            parent=_dialog_parent(app),
+        )
+        return
+
     if vg is None:
         if suppress_errors:
             return
         messagebox.showerror(
             "Missing dependency",
             "vgamepad is not installed. Install vgamepad (and ViGEmBus) to start remapping.",
-            parent=app.root,
+            parent=_dialog_parent(app),
         )
         return
 
     if pygame is None:
         if suppress_errors:
             return
-        messagebox.showerror("Missing dependency", "pygame is required to read controller input.", parent=app.root)
+        messagebox.showerror("Missing dependency", "pygame is required to read controller input.", parent=_dialog_parent(app))
         return
 
     if preferred_controller_name:
@@ -1142,20 +1297,23 @@ def _start_remap(app, preferred_controller_name: Optional[str] = None, suppress_
     if joystick is None:
         if suppress_errors:
             return
-        messagebox.showerror("No controller", "No controller detected.", parent=app.root)
+        messagebox.showerror("No controller", "No controller detected.", parent=_dialog_parent(app))
         return
 
     if state.mapping is None:
         if suppress_errors:
             return
-        messagebox.showwarning("No mapping", "No mapping found. Run calibration first.", parent=app.root)
+        messagebox.showwarning("No mapping", "No mapping found. Run calibration first.", parent=_dialog_parent(app))
         return
 
     if not _mapping_has_required_axes(state.mapping):
         if suppress_errors:
             return
-        messagebox.showwarning("Invalid mapping", "Mapping is missing required analog entries. Recalibrate.", parent=app.root)
+        messagebox.showwarning("Invalid mapping", "Mapping is missing required analog entries. Recalibrate.", parent=_dialog_parent(app))
         return
+
+    state.mapping.setdefault("meta", {})["output_profile"] = state.output_profile
+    _save_mapping(state.mapping, state.output_profile)
 
     if state.remap_thread and state.remap_thread.is_alive():
         return
@@ -1163,14 +1321,14 @@ def _start_remap(app, preferred_controller_name: Optional[str] = None, suppress_
     state.stop_event.clear()
     state.remap_thread = threading.Thread(
         target=_remap_loop,
-        args=(app, joystick, state.mapping),
+        args=(app, joystick, state.mapping, state.output_profile),
         daemon=True,
     )
     state.remap_thread.start()
 
     _set_action_buttons_enabled(app, remap_active=True)
     _set_status(app, "Remapping active")
-    _log(app, "Remapper started.")
+    _log(app, "Remapper started. Output: " + OUTPUT_PROFILE_LABELS.get(state.output_profile, "Xbox 360 (XInput)"))
 
 
 def _stop_remap(app) -> None:
@@ -1400,15 +1558,27 @@ def build_page(self, parent):
     state.log_widget.pack(fill="both", expand=True)
 
     if not state.initialized:
-        state.mapping = _load_mapping()
         state.initialized = True
         _log(self, "Remapper module initialized.")
-        _log(self, "Mapping file path: " + MAPPING_FILE)
-        if state.mapping is None:
-            _log(self, "No mapping found yet. Run calibration first.")
-        else:
-            controller_name = state.mapping.get("meta", {}).get("controller_name", "unknown")
-            _log(self, "Loaded existing mapping for: " + controller_name)
+        _log(self, "Mapping directory: " + REMAPPER_APP_DIR)
+
+    output_row = tk.Frame(control_card, bg=COLORS["panel"])
+    output_row.pack(fill="x", pady=(8, 0))
+    tk.Label(output_row, text="Output", bg=COLORS["panel"], fg=COLORS["text"], font=("Segoe UI", 10)).pack(side="left")
+
+    output_values = [OUTPUT_PROFILE_LABELS["xbox"], OUTPUT_PROFILE_LABELS["ps"]]
+    state.output_profile_var = tk.StringVar(value=OUTPUT_PROFILE_LABELS.get(state.output_profile, OUTPUT_PROFILE_LABELS["xbox"]))
+    state.output_profile_combo = ttk.Combobox(output_row, textvariable=state.output_profile_var, state="readonly", values=output_values, width=30)
+    state.output_profile_combo.pack(side="left", padx=(10, 0))
+    state.output_profile_combo.bind("<<ComboboxSelected>>", lambda _event: _on_output_profile_changed(self))
+    _sync_output_profile_ui(self)
+
+    state.mapping = _load_mapping(state.output_profile)
+    if state.mapping is None:
+        _log(self, "No mapping found for " + OUTPUT_PROFILE_LABELS[state.output_profile] + ". Run calibration first.")
+    else:
+        controller_name = state.mapping.get("meta", {}).get("controller_name", "unknown")
+        _log(self, "Loaded existing mapping for: " + controller_name + " (" + OUTPUT_PROFILE_LABELS[state.output_profile] + ")")
 
     for line in state.log_lines:
         state.log_widget.configure(state="normal")
